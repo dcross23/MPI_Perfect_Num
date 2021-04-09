@@ -39,7 +39,8 @@ typedef struct infoProceso{
 InfoProceso calculoSecuencial(Numero num);
 void calculoDivisores(Numero num, Numero iInicio, Numero iFinal);
 MPI_Datatype crearInfoProceso(InfoProceso info);
-void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, Numero sumaRecibida);
+void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, double tTotal, Numero sumaRecibida);
+void exportarTiempos(double tTotal,int nProc, char *archivo);
 
 
 
@@ -54,6 +55,9 @@ int main(int argc, char **argv){
 	int i;
 	int id, nProc;
 	Numero intervalo, num;
+	InfoProceso infoTotal;
+	
+	double tiempoTotal;
 	
 	
 //Init
@@ -71,14 +75,16 @@ int main(int argc, char **argv){
 		//En caso de que solo haya un proceso, lo hace todo de forma secuencial el proceso 0
 		if(nProc == 1){
 			InfoProceso infoSecuencial;
-	
+			
+			tiempoTotal = MPI_Wtime();
 			infoSecuencial = calculoSecuencial(num);
+			tiempoTotal = MPI_Wtime() - tiempoTotal;
 			
 			//Imprime si es perfecto o no
 			ES_PERFECTO(num,infoSecuencial.sumaIntervalo)
 				
-			imprimirDatosFinales(&infoSecuencial, nProc, infoSecuencial.sumaIntervalo);
-			
+			imprimirDatosFinales(&infoSecuencial, nProc, tiempoTotal ,infoSecuencial.sumaIntervalo);
+			exportarTiempos(tiempoTotal, nProc, "tiempos.txt");
 //Finalize
 			MPI_Finalize();
 			return 0;
@@ -102,6 +108,7 @@ int main(int argc, char **argv){
 	
 	InfoProceso infoProcesos[nProc - 1];
 	
+	tiempoTotal = MPI_Wtime();
 	if(ES_PROCESO_0(id)){	
 		InfoProceso info;
 		int procPorAcabar = nProc - 1;
@@ -143,7 +150,6 @@ int main(int argc, char **argv){
 		//Recibe la suma del último proceso
 		MPI_Recv(&sumaRecibida, 1, MPI_UNSIGNED_LONG, nProc-1, E_SIG_PROC, MPI_COMM_WORLD, &status);
 	
-	
 	}else{
 		if(ES_ULTIMO_PROCESO(id)){
 			calculoDivisores(num, (id-1)*intervalo+1, (id-1)*intervalo + intervalo + num%(nProc-1));
@@ -151,7 +157,7 @@ int main(int argc, char **argv){
 			calculoDivisores(num, (id-1)*intervalo+1, (id-1)*intervalo + intervalo);
 		}
 	}
-	
+	tiempoTotal = MPI_Wtime() - tiempoTotal;
 	
 	if(ES_PROCESO_0(id)){
 		if(sumaCalculada == sumaRecibida)
@@ -160,7 +166,8 @@ int main(int argc, char **argv){
 			fprintf(stdout, "\nSUMA TOTAL ERROR: calculada %llu  recibida %llu\n", sumaCalculada, sumaRecibida);
 		
 		ES_PERFECTO(num, sumaRecibida)
-		imprimirDatosFinales(infoProcesos, nProc, sumaRecibida);		
+		imprimirDatosFinales(infoProcesos, nProc, tiempoTotal, sumaRecibida);		
+		exportarTiempos(tiempoTotal, nProc,"tiempos.txt");
 	}
 	
 	
@@ -249,10 +256,9 @@ void calculoDivisores(Numero num, Numero iInicio, Numero iFinal){
 
 
 //Función para imprimir los datos en forma de tabla al final
-void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, Numero sumaRecibida){
+void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, double tTotal, Numero sumaRecibida){
 	int i;
-	int totalDiv = 0;
-	double tTotal = 0;
+	Numero nDivisores = 0;
 		
 	fprintf(stdout, "%-9s | %-15s  | %-20s | %-10s\n","Proceso","Nº Divisores","Suma","Tiempo calculo");
 	for(i=0; i<70; i++)
@@ -261,14 +267,12 @@ void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, Numero sumaRecib
 	
 	if(nProc == 1){
 		fprintf(stdout, "%9d | %15llu | %20llu | %10f\n", 0, infoProcesos->nDivisores, infoProcesos->sumaIntervalo,infoProcesos->tCalculo);
-		totalDiv = infoProcesos->nDivisores;
-		tTotal = infoProcesos->tCalculo;
+		nDivisores = infoProcesos->nDivisores;
 	
 	}else{
 		for(i=0; i<nProc-1; i++){
 			fprintf(stdout, "%9d | %15llu | %20llu | %10f\n",i+1,infoProcesos[i].nDivisores,infoProcesos[i].sumaIntervalo,infoProcesos[i].tCalculo);
-			totalDiv += (int)infoProcesos[i].nDivisores;
-			tTotal += infoProcesos[i].tCalculo;
+			nDivisores += (int)infoProcesos[i].nDivisores;
 		}
 	}
 	
@@ -276,7 +280,19 @@ void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, Numero sumaRecib
 		fprintf(stdout,"-");
 	fprintf(stdout, "\n");
 	
-	fprintf(stdout, "%9s | %15d | %20llu | %10f\n","TOTAL",totalDiv, sumaRecibida, tTotal);
+	fprintf(stdout, "%9s | %15llu | %20llu | %10f\n","TOTAL", nDivisores, sumaRecibida, tTotal);
+}
+
+
+
+//Función para exportar tiempos y crear la gráfica
+void exportarTiempos(double tiempoTotal, int nProc, char *archivo){
+	FILE *f = fopen(archivo, "a+");
+	if(f != NULL){
+		fseek(f, 0, SEEK_END);
+		fprintf(f, "%d/%f\n", nProc-1, tiempoTotal);
+		fclose(f);
+	}
 }
 
 
