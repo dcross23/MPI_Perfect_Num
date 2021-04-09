@@ -9,14 +9,23 @@
 #define ES_DIVISOR(d,n) (n % d == 0)
 
 #define MPI_INFO_PROCESO(info) (crearInfoProceso(info))
+#define INICIAR_ARRAY(valor, array, tam) for (i=0; i<tam; i++) \
+                      				array[i] = valor;
+                      				
+#define ES_PERFECTO(num, suma) do { \
+		if(num == suma) fprintf(stdout, "\nEl numero %llu ES PERFECTO\n\n", num); \
+		else if(num < suma) fprintf(stdout, "\nEl numero %llu NO ES PERFECTO, es EXCESIVO (%llu)\n\n", num, suma); \
+		else fprintf(stdout, "\nEl numero %llu NO ES PERFECTO, es DEFECTIVO (%llu)\n\n", num, suma); \
+	}while(0);
 
+//Etiquetas
 #define E_SIG_PROC 1
 #define E_NUEVO_DIV 2
 #define E_PROC_FIN 3
 
 
 //Declaracion de tipos
-typedef unsigned long Numero;
+typedef unsigned long long Numero;
 
 typedef struct infoProceso{
 	double tCalculo;
@@ -27,6 +36,7 @@ typedef struct infoProceso{
 
 
 //Prototipos de funciones
+InfoProceso calculoSecuencial(Numero num);
 void calculoDivisores(Numero num, Numero iInicio, Numero iFinal);
 MPI_Datatype crearInfoProceso(InfoProceso info);
 void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, Numero sumaRecibida);
@@ -35,8 +45,13 @@ void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, Numero sumaRecib
 
 /* MAIN */
 int main(int argc, char **argv){
-	if(argc != 2) return 1;
+	if(argc != 2){
+		fprintf(stdout, "Error: Numero invalido de argumentos\n");
+		fprintf(stdout, "Uso: mpirun -np X [--oversubscribe] %s numero\n", argv[0]);
+		return 1;
+	}
 	
+	int i;
 	int id, nProc;
 	Numero intervalo, num;
 	
@@ -51,10 +66,31 @@ int main(int argc, char **argv){
 	//  y enviamos ambos a todos los procesos
 	if(ES_PROCESO_0(id)){
 		num = strtoul(argv[1], NULL, 10);
-		printf("NUMERO A COMPROBAR: %lu EN %d PROCESOS\n\n", num, nProc);
-		intervalo = num / (nProc - 1);
+		printf("NUMERO A COMPROBAR: %llu EN %d PROCESOS\n\n", num, nProc);
+	
+		//En caso de que solo haya un proceso, lo hace todo de forma secuencial el proceso 0
+		if(nProc == 1){
+			InfoProceso infoSecuencial;
+	
+			infoSecuencial = calculoSecuencial(num);
+			
+			//Imprime si es perfecto o no
+			ES_PERFECTO(num,infoSecuencial.sumaIntervalo)
+				
+			imprimirDatosFinales(&infoSecuencial, nProc, infoSecuencial.sumaIntervalo);
+			
+//Finalize
+			MPI_Finalize();
+			return 0;
+			
+		}else{
+		//En caso de que haya más procesos, calcula los intervalos 
+			intervalo = num / (nProc - 1);
+		}
 	}
 	
+	
+	//Envia los intervalos
 	MPI_Bcast(&num, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
 	MPI_Bcast(&intervalo, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
 	
@@ -65,57 +101,48 @@ int main(int argc, char **argv){
 	MPI_Status status;
 	
 	InfoProceso infoProcesos[nProc - 1];
-	int i;
 	
-	if(ES_PROCESO_0(id)){
-		
-		//Debe esperar por todos los div de un proceso
-		//Luego ya imprime que ha acabado
-		
+	if(ES_PROCESO_0(id)){	
+		InfoProceso info;
 		int procPorAcabar = nProc - 1;
-		int flag;
-		sumaCalculada = 0;
 		
-		int divAcu[nProc - 1];
-		for(i=0; i<nProc-1; i++) 
-			divAcu[i] = 0;
+		int divAcu[nProc - 1];   INICIAR_ARRAY(0, divAcu, nProc - 1)
 		
+		sumaCalculada = 0;		
 		while(procPorAcabar > 0){
-		
-			//MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 			
-			MPI_Iprobe(MPI_ANY_SOURCE, E_NUEVO_DIV, MPI_COMM_WORLD, &flag, &status);
-			if(flag != 0){
-				MPI_Recv(&divRec, 1, MPI_UNSIGNED_LONG, MPI_ANY_SOURCE, E_NUEVO_DIV, MPI_COMM_WORLD, &status);	
-				fprintf(stdout, "DIV: %3d,  DIV RECV: %10lu,  DIV ACU: %5d\n", status.MPI_SOURCE, divRec, divAcu[status.MPI_SOURCE - 1]);
-				sumaCalculada += divRec; 
-				divAcu[status.MPI_SOURCE - 1]++;
-			
-			}else{
-			
-				MPI_Iprobe(MPI_ANY_SOURCE, E_PROC_FIN, MPI_COMM_WORLD, &flag, &status);
-				if(flag != 0){
-					InfoProceso info;
+			switch(status.MPI_TAG){
+				case E_NUEVO_DIV:
+					MPI_Recv(&divRec, 1, MPI_UNSIGNED_LONG, MPI_ANY_SOURCE, E_NUEVO_DIV, MPI_COMM_WORLD, &status);	
+					fprintf(stdout, "DIV: %3d,  DIV RECV: %10llu,  DIV ACU: %5d\n", status.MPI_SOURCE, divRec, divAcu[status.MPI_SOURCE - 1]);
+					sumaCalculada += divRec; 
+					divAcu[status.MPI_SOURCE - 1]++;
+					break;
+				
+				case E_PROC_FIN:
 					MPI_Recv(&info, 1, MPI_INFO_PROCESO(info), MPI_ANY_SOURCE, E_PROC_FIN, MPI_COMM_WORLD, &status);
-					
 					infoProcesos[status.MPI_SOURCE - 1] = info;
 					
+					//Si llega el mensaje de fín pero todavía no han llegado todos los divisores, espera por ellos
 					while(infoProcesos[status.MPI_SOURCE - 1].nDivisores != divAcu[status.MPI_SOURCE - 1]){
 						MPI_Recv(&divRec, 1, MPI_UNSIGNED_LONG, status.MPI_SOURCE, E_NUEVO_DIV, MPI_COMM_WORLD, &status);
-						fprintf(stdout, "DIV: %3d,  DIV RECV: %10lu,  DIV ACU: %5d\n", status.MPI_SOURCE, divRec, divAcu[status.MPI_SOURCE - 1]);
+						fprintf(stdout, "DIV: %3d,  DIV RECV: %10llu,  DIV ACU: %5d\n", status.MPI_SOURCE, divRec, divAcu[status.MPI_SOURCE - 1]);
 						sumaCalculada += divRec; 
 						divAcu[status.MPI_SOURCE - 1]++;
 					}
 					
 						
-					fprintf(stdout, "FIN: %3d -> tiempo:%f\n", status.MPI_SOURCE, infoProcesos[status.MPI_SOURCE - 1].tCalculo);
+					fprintf(stdout, "FIN: %3d\n", status.MPI_SOURCE);
 					procPorAcabar--;
-				}	
+					break;
 			}		
 		}
 		
+		
 		//Recibe la suma del último proceso
 		MPI_Recv(&sumaRecibida, 1, MPI_UNSIGNED_LONG, nProc-1, E_SIG_PROC, MPI_COMM_WORLD, &status);
+	
 	
 	}else{
 		if(ES_ULTIMO_PROCESO(id)){
@@ -126,22 +153,14 @@ int main(int argc, char **argv){
 	}
 	
 	
-	
 	if(ES_PROCESO_0(id)){
 		if(sumaCalculada == sumaRecibida)
-			fprintf(stdout, "\nSUMA TOTAL OK: calculada %lu  recibida %lu\n", sumaCalculada, sumaRecibida);
+			fprintf(stdout, "\nSUMA TOTAL OK: calculada %llu  recibida %llu\n", sumaCalculada, sumaRecibida);
 		else
-			fprintf(stdout, "\nSUMA TOTAL ERROR: calculada %lu  recibida %lu\n", sumaCalculada, sumaRecibida);
+			fprintf(stdout, "\nSUMA TOTAL ERROR: calculada %llu  recibida %llu\n", sumaCalculada, sumaRecibida);
 		
-		if(num == sumaRecibida)
-			printf("\nEl numero %lu ES PERFECTO\n", num);
-		else
-			printf("\nEl numero %lu NO ES PERFECTO\n", num);
-		
-		fprintf(stdout, "\n\n");
-		
+		ES_PERFECTO(num, sumaRecibida)
 		imprimirDatosFinales(infoProcesos, nProc, sumaRecibida);		
-		
 	}
 	
 	
@@ -152,7 +171,34 @@ int main(int argc, char **argv){
 
 
 
+//Funcion para el cálculo secuencial cuando solo hay un proceso
+InfoProceso calculoSecuencial(Numero num){
+	double tInicio, tFin;
+	Numero divisor;
+	
+	InfoProceso info;
+	info.nDivisores=0;
+	info.sumaIntervalo=0;
+	
+	tInicio = MPI_Wtime();
+	for(divisor=1; divisor<=num; divisor++){
+		if(divisor != num && ES_DIVISOR(divisor, num)){
+			info.sumaIntervalo += divisor;
+			info.nDivisores++;
+			fprintf(stdout, "DIV: %3d,  DIV RECV: %10llu,  DIV ACU: %5llu,  SUMA ACU: %10llu \n", 0, divisor, info.nDivisores, info.sumaIntervalo);
+		}
+	}
+	tFin = MPI_Wtime();
+	fprintf(stdout, "FIN: %3d\n", 0);	
+	info.tCalculo = tFin - tInicio;
+	
+	return info;
+}
 
+
+
+
+//Función para el cálculo con varios procesos
 void calculoDivisores(Numero num, Numero iInicio, Numero iFinal){
 
 	int nProc, id;
@@ -162,9 +208,9 @@ void calculoDivisores(Numero num, Numero iInicio, Numero iFinal){
 	Numero divisor, sumaAcum = 0;
 	double tInicio, tFin;
 	InfoProceso info;
+	
 	info.nDivisores=0;
 	info.sumaIntervalo=0;
-		
 
 	tInicio = MPI_Wtime();		
 	for(divisor=iInicio; divisor<=iFinal; divisor++){
@@ -180,7 +226,6 @@ void calculoDivisores(Numero num, Numero iInicio, Numero iFinal){
 	
 	//El proceso ha acabado 
 	MPI_Send(&info, 1, MPI_INFO_PROCESO(info), 0, E_PROC_FIN, MPI_COMM_WORLD);
-	//MPI_Send(&info.nDivisores, 1, MPI_UNSIGNED_LONG, 0, E_PROC_FIN, MPI_COMM_WORLD);
 	
 	
 	//Espero por la suma acumulada de los anteriores (el primer proceso no espera porque el anterior
@@ -202,6 +247,41 @@ void calculoDivisores(Numero num, Numero iInicio, Numero iFinal){
 }
 
 
+
+//Función para imprimir los datos en forma de tabla al final
+void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, Numero sumaRecibida){
+	int i;
+	int totalDiv = 0;
+	double tTotal = 0;
+		
+	fprintf(stdout, "%-9s | %-15s  | %-20s | %-10s\n","Proceso","Nº Divisores","Suma","Tiempo calculo");
+	for(i=0; i<70; i++)
+		fprintf(stdout,"-");
+	fprintf(stdout, "\n");
+	
+	if(nProc == 1){
+		fprintf(stdout, "%9d | %15llu | %20llu | %10f\n", 0, infoProcesos->nDivisores, infoProcesos->sumaIntervalo,infoProcesos->tCalculo);
+		totalDiv = infoProcesos->nDivisores;
+		tTotal = infoProcesos->tCalculo;
+	
+	}else{
+		for(i=0; i<nProc-1; i++){
+			fprintf(stdout, "%9d | %15llu | %20llu | %10f\n",i+1,infoProcesos[i].nDivisores,infoProcesos[i].sumaIntervalo,infoProcesos[i].tCalculo);
+			totalDiv += (int)infoProcesos[i].nDivisores;
+			tTotal += infoProcesos[i].tCalculo;
+		}
+	}
+	
+	for(i=0; i<70; i++)
+		fprintf(stdout,"-");
+	fprintf(stdout, "\n");
+	
+	fprintf(stdout, "%9s | %15d | %20llu | %10f\n","TOTAL",totalDiv, sumaRecibida, tTotal);
+}
+
+
+
+//Función para crear el tipo de dato para el struct
 MPI_Datatype crearInfoProceso(InfoProceso info){
 	MPI_Datatype nuevoTipo;
 	MPI_Datatype tipos[3];
@@ -234,31 +314,5 @@ MPI_Datatype crearInfoProceso(InfoProceso info){
 	MPI_Type_commit(&nuevoTipo);
 	return nuevoTipo;
 }
-
-
-void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, Numero sumaRecibida){
-	int i;
-	fprintf(stdout, "%-9s | %-15s  | %-20s | %-10s\n","Proceso","Nº Divisores","Suma","Tiempo calculo");
-	for(i=0; i<70; i++)
-		fprintf(stdout,"-");
-	fprintf(stdout, "\n");
-	
-	int totalDiv = 0;
-	double tTotal = 0;
-	for(i=0; i<nProc-1; i++){
-		fprintf(stdout, "%9d | %15lu | %20lu | %10f\n",i+1,infoProcesos[i].nDivisores,infoProcesos[i].sumaIntervalo,infoProcesos[i].tCalculo);
-		totalDiv += (int)infoProcesos[i].nDivisores;
-		tTotal += infoProcesos[i].tCalculo;
-	}
-	for(i=0; i<70; i++)
-		fprintf(stdout,"-");
-	fprintf(stdout, "\n");
-	
-	fprintf(stdout, "%9s | %15d | %20lu | %10f\n","TOTAL",totalDiv, sumaRecibida, tTotal);
-}
-
-
-
-
 
 
