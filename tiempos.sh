@@ -20,6 +20,7 @@ fi
 i=1
 while [ $i -le $nproc ]
 do
+	#for j in {1..3}
 	for j in 1
 	do
 		mpirun --oversubscribe -np $i perfecto $num
