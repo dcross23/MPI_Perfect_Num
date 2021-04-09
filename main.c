@@ -83,9 +83,9 @@ int main(int argc, char **argv){
 			tiempoTotal = MPI_Wtime() - tiempoTotal;
 			
 			//Imprime si es perfecto o no
-			ES_PERFECTO(num,infoSecuencial.sumaIntervalo)
-				
 			imprimirDatosFinales(&infoSecuencial, nProc, tiempoTotal ,infoSecuencial.sumaIntervalo);
+			
+			ES_PERFECTO(num,infoSecuencial.sumaIntervalo)
 			
 			#ifdef EXPORTAR_TIEMPOS
 				exportarTiempos(tiempoTotal, nProc, archivo);
@@ -179,8 +179,9 @@ int main(int argc, char **argv){
 		else
 			fprintf(stdout, "\nSUMA TOTAL ERROR: calculada %llu  recibida %llu\n", sumaCalculada, sumaRecibida);
 		
+		imprimirDatosFinales(infoProcesos, nProc, tiempoTotal, sumaRecibida);	
 		ES_PERFECTO(num, sumaRecibida)
-		imprimirDatosFinales(infoProcesos, nProc, tiempoTotal, sumaRecibida);		
+			
 		#ifdef EXPORTAR_TIEMPOS
 			exportarTiempos(tiempoTotal, nProc, archivo);
 		#endif
@@ -305,7 +306,6 @@ void imprimirDatosFinales(InfoProceso *infoProcesos, int nProc, double tTotal, N
 void exportarTiempos(double tiempoTotal, int nProc, char *archivo){
 	FILE *f = fopen(archivo, "a+");
 	if(f != NULL){
-		fseek(f, 0, SEEK_END);
 		fprintf(f, "%d/%f\n", nProc, tiempoTotal);
 		fclose(f);
 	}

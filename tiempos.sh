@@ -1,7 +1,5 @@
 #!/bin/bash
 
-mpicc main.c -o perfecto
-
 if [ $# -eq 2 ] 
 then
 	nproc=$1
@@ -23,7 +21,7 @@ do
 	#for j in {1..3}
 	for j in 1
 	do
-		mpirun --oversubscribe -np $i perfecto $num
+		mpirun --oversubscribe -np $i perfnum $num
 	done
 	
 	i=$(expr $i \+ 1)
