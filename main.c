@@ -3,6 +3,7 @@
 #include <string.h>
 #include <mpi.h>
 
+#define EXPORTAR_TIEMPOS 
 
 #define ES_PROCESO_0(id) (id == 0)
 #define ES_ULTIMO_PROCESO(id) (id == nProc-1)
@@ -58,6 +59,7 @@ int main(int argc, char **argv){
 	InfoProceso infoTotal;
 	
 	double tiempoTotal;
+	char *archivo = "tiempos.txt";
 	
 	
 //Init
@@ -70,7 +72,7 @@ int main(int argc, char **argv){
 	//  y enviamos ambos a todos los procesos
 	if(ES_PROCESO_0(id)){
 		num = strtoul(argv[1], NULL, 10);
-		printf("NUMERO A COMPROBAR: %llu EN %d PROCESOS\n\n", num, nProc);
+		fprintf(stdout, "NUMERO A COMPROBAR: %llu EN %d PROCESOS\n\n", num, nProc);
 	
 		//En caso de que solo haya un proceso, lo hace todo de forma secuencial el proceso 0
 		if(nProc == 1){
@@ -84,7 +86,11 @@ int main(int argc, char **argv){
 			ES_PERFECTO(num,infoSecuencial.sumaIntervalo)
 				
 			imprimirDatosFinales(&infoSecuencial, nProc, tiempoTotal ,infoSecuencial.sumaIntervalo);
-			exportarTiempos(tiempoTotal, nProc, "tiempos.txt");
+			
+			#ifdef EXPORTAR_TIEMPOS
+				exportarTiempos(tiempoTotal, nProc, archivo);
+			#endif
+			
 //Finalize
 			MPI_Finalize();
 			return 0;
@@ -114,6 +120,7 @@ int main(int argc, char **argv){
 		int procPorAcabar = nProc - 1;
 		
 		int divAcu[nProc - 1];   INICIAR_ARRAY(0, divAcu, nProc - 1)
+		Numero sumaAcum[nProc - 1];   INICIAR_ARRAY(0, sumaAcum, nProc - 1)
 		
 		sumaCalculada = 0;		
 		while(procPorAcabar > 0){
@@ -122,9 +129,10 @@ int main(int argc, char **argv){
 			switch(status.MPI_TAG){
 				case E_NUEVO_DIV:
 					MPI_Recv(&divRec, 1, MPI_UNSIGNED_LONG, MPI_ANY_SOURCE, E_NUEVO_DIV, MPI_COMM_WORLD, &status);	
-					fprintf(stdout, "DIV: %3d,  DIV RECV: %10llu,  DIV ACU: %5d\n", status.MPI_SOURCE, divRec, divAcu[status.MPI_SOURCE - 1]);
 					sumaCalculada += divRec; 
 					divAcu[status.MPI_SOURCE - 1]++;
+					sumaAcum[status.MPI_SOURCE - 1] += divRec;
+					fprintf(stdout, "DIV: %3d,  DIV RECV: %10llu,  DIV ACU: %5d,  SUMA ACU: %10llu \n", status.MPI_SOURCE, divRec, divAcu[status.MPI_SOURCE - 1], sumaAcum[status.MPI_SOURCE - 1]);
 					break;
 				
 				case E_PROC_FIN:
@@ -134,13 +142,19 @@ int main(int argc, char **argv){
 					//Si llega el mensaje de fín pero todavía no han llegado todos los divisores, espera por ellos
 					while(infoProcesos[status.MPI_SOURCE - 1].nDivisores != divAcu[status.MPI_SOURCE - 1]){
 						MPI_Recv(&divRec, 1, MPI_UNSIGNED_LONG, status.MPI_SOURCE, E_NUEVO_DIV, MPI_COMM_WORLD, &status);
-						fprintf(stdout, "DIV: %3d,  DIV RECV: %10llu,  DIV ACU: %5d\n", status.MPI_SOURCE, divRec, divAcu[status.MPI_SOURCE - 1]);
 						sumaCalculada += divRec; 
 						divAcu[status.MPI_SOURCE - 1]++;
+						sumaAcum[status.MPI_SOURCE - 1] += divRec;
+						fprintf(stdout, "DIV: %3d,  DIV RECV: %10llu,  DIV ACU: %5d,  SUMA ACU: %10llu \n", status.MPI_SOURCE, divRec, divAcu[status.MPI_SOURCE - 1], sumaAcum[status.MPI_SOURCE - 1]);
 					}
 					
 						
-					fprintf(stdout, "FIN: %3d\n", status.MPI_SOURCE);
+					fprintf(stdout, "FIN: %3d,  SUMA RECV: %10llu,  SUMA ACU: %10llu", status.MPI_SOURCE, infoProcesos[status.MPI_SOURCE - 1].sumaIntervalo, sumaAcum[status.MPI_SOURCE - 1]);
+					if(infoProcesos[status.MPI_SOURCE - 1].sumaIntervalo == sumaAcum[status.MPI_SOURCE - 1])
+						fprintf(stdout,",  SUMA ACU OK\n");
+					else
+						fprintf(stdout,",  SUMA ACU ERROR\n");
+					
 					procPorAcabar--;
 					break;
 			}		
@@ -167,7 +181,9 @@ int main(int argc, char **argv){
 		
 		ES_PERFECTO(num, sumaRecibida)
 		imprimirDatosFinales(infoProcesos, nProc, tiempoTotal, sumaRecibida);		
-		exportarTiempos(tiempoTotal, nProc,"tiempos.txt");
+		#ifdef EXPORTAR_TIEMPOS
+			exportarTiempos(tiempoTotal, nProc, archivo);
+		#endif
 	}
 	
 	
@@ -196,7 +212,7 @@ InfoProceso calculoSecuencial(Numero num){
 		}
 	}
 	tFin = MPI_Wtime();
-	fprintf(stdout, "FIN: %3d\n", 0);	
+	fprintf(stdout, "FIN: %3d,  SUMA RECV: %10llu,  SUMA ACU: %10llu, SUMA ACU OK", 0, info.sumaIntervalo, info.sumaIntervalo);	
 	info.tCalculo = tFin - tInicio;
 	
 	return info;
