@@ -290,7 +290,7 @@ void exportarTiempos(double tiempoTotal, int nProc, char *archivo){
 	FILE *f = fopen(archivo, "a+");
 	if(f != NULL){
 		fseek(f, 0, SEEK_END);
-		fprintf(f, "%d/%f\n", nProc-1, tiempoTotal);
+		fprintf(f, "%d/%f\n", nProc, tiempoTotal);
 		fclose(f);
 	}
 }

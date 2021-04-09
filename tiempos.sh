@@ -22,8 +22,9 @@ while [ $i -le $nproc ]
 do
 	for j in 1
 	do
-		mpirun --oversubscribe -np $(expr $i \+ 1) perfecto $num
+		mpirun --oversubscribe -np $i perfecto $num
 	done
 	
-	i=$(expr $i \* 2)
+	i=$(expr $i \+ 1)
+	#i=$(expr $i \* 2)
 done
